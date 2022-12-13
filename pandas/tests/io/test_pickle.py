@@ -598,3 +598,20 @@ def test_pickle_frame_v124_unpickle_130():
 
     expected = pd.DataFrame()
     tm.assert_frame_equal(df, expected)
+
+
+def test_read_pickle_forbidden():
+    # related to CVE - https://nvd.nist.gov/vuln/detail/CVE-2020-13091
+
+    class MyEvilPickle:
+        def __reduce__(self):
+            return (os.system, ("whoami",))
+
+    pickle_data = pickle.dumps(MyEvilPickle())
+    # storing the serialized output into a file in current directory
+    path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_forbidden.pkl")
+    with open(path, "wb") as file:
+        file.write(pickle_data)
+
+    with pytest.raises(pickle.UnpicklingError, match=r".* forbidden"):
+        pd.read_pickle(path)

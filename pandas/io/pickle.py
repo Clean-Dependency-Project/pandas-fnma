@@ -5,6 +5,8 @@ import pickle
 from typing import Any
 import warnings
 
+from pandas._config import get_option
+
 from pandas._typing import (
     CompressionOptions,
     FilePath,
@@ -101,15 +103,8 @@ def to_pickle(
         is_text=False,
         storage_options=storage_options,
     ) as handles:
-        if handles.compression["method"] in ("bz2", "xz") and protocol >= 5:
-            # some weird TypeError GH#39002 with pickle 5: fallback to letting
-            # pickle create the entire object and then write it to the buffer.
-            # "zip" would also be here if pandas.io.common._BytesZipFile
-            # wouldn't buffer write calls
-            handles.handle.write(pickle.dumps(obj, protocol=protocol))
-        else:
-            # letting pickle write directly to the buffer is more memory-efficient
-            pickle.dump(obj, handles.handle, protocol=protocol)
+        # letting pickle write directly to the buffer is more memory-efficient
+        pickle.dump(obj, handles.handle, protocol=protocol)
 
 
 @doc(
@@ -122,12 +117,15 @@ def read_pickle(
     storage_options: StorageOptions = None,
 ):
     """
-    Load pickled pandas object (or any object) from file.
+    Load pickled pandas object (or any object) from file. By default, only a
+    safe subset of classes from builtins can be called while loading the
+    object. See INFO file for customizing the security settings.
 
     .. warning::
 
        Loading pickled data received from untrusted sources can be
-       unsafe. See `here <https://docs.python.org/3/library/pickle.html>`__.
+       unsafe if not using the default security settings.
+       See `here <https://docs.python.org/3/library/pickle.html>`__.
 
     Parameters
     ----------
@@ -186,6 +184,27 @@ def read_pickle(
     3    3    8
     4    4    9
     """
+    
+    class RestrictedUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            opt = get_option("pickler.unpickle.mode")
+            # Only allow safe modules and classes. Tuples defined in config
+            # Do not allow unsafe modules and classes.
+            if (
+                (opt == "off")
+                or (
+                    opt == "permit"
+                    and (module, name) in get_option("pickler.safe.tuples")
+                )
+                or (
+                    opt == "deny"
+                    and (module, name) not in get_option("pickler.unsafe.tuples")
+                )
+            ):
+                return super().find_class(module, name)
+            # Forbid everything else.
+            raise pickle.UnpicklingError(f"global '{module} . {name}' is forbidden")
+
     excs_to_catch = (AttributeError, ImportError, ModuleNotFoundError, TypeError)
     with get_handle(
         filepath_or_buffer,
@@ -205,7 +224,7 @@ def read_pickle(
                 with warnings.catch_warnings(record=True):
                     # We want to silence any warnings about, e.g. moved modules.
                     warnings.simplefilter("ignore", Warning)
-                    return pickle.load(handles.handle)
+                    return RestrictedUnpickler.load(handles.handle)
             except excs_to_catch:
                 # e.g.
                 #  "No module named 'pandas.core.sparse.series'"

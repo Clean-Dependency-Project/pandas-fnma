@@ -15,6 +15,8 @@ import warnings
 
 import numpy as np
 
+from pandas._config import get_option
+
 from pandas._libs.arrays import NDArrayBacked
 from pandas._libs.tslibs import BaseOffset
 
@@ -196,6 +198,7 @@ _class_locations_map = {
 
 # our Unpickler sub-class to override methods and some dispatcher
 # functions for compat and uses a non-public class of the pickle module.
+# checks modules against permit/deny list and raises error if module is not forbidden.
 
 
 class Unpickler(pkl._Unpickler):
@@ -203,7 +206,20 @@ class Unpickler(pkl._Unpickler):
         # override superclass
         key = (module, name)
         module, name = _class_locations_map.get(key, key)
-        return super().find_class(module, name)
+        opt = get_option("pickler.unpickle.mode")
+        # Only allow safe modules and classes. Tuples defined in config
+        # Do not allow unsafe modules and classes.
+        if (
+            (opt == "off")
+            or (opt == "permit" and (module, name) in get_option("pickler.safe.tuples"))
+            or (
+                opt == "deny"
+                and (module, name) not in get_option("pickler.unsafe.tuples")
+            )
+        ):
+            return super().find_class(module, name)
+        # Forbid everything else.
+        raise pkl.UnpicklingError(f"global '{module} . {name}' is forbidden")
 
 
 Unpickler.dispatch = copy.copy(Unpickler.dispatch)
