@@ -53,6 +53,8 @@ from pandas.tseries.offsets import (
     Day,
     MonthEnd,
 )
+from unittest.mock import patch, Mock
+from pandas._config import get_option
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:Timestamp.freq is deprecated:FutureWarning"
@@ -599,19 +601,93 @@ def test_pickle_frame_v124_unpickle_130():
     expected = pd.DataFrame()
     tm.assert_frame_equal(df, expected)
 
+# Tests related to CVE - https://nvd.nist.gov/vuln/detail/CVE-2020-13091.
+# These tests cover all possible code paths introduced by the 3246a66.
+# Possibilities include pickle config mode permit/deny/off.
 
-def test_read_pickle_forbidden():
-    # related to CVE - https://nvd.nist.gov/vuln/detail/CVE-2020-13091
+def get_test_option_permit(opt):
+    if opt == "pickler.unpickle.mode":
+        return "permit"
+    if opt == "pickler.safe.tuples":
+        return [("builtins", "str")]
+    return get_option(opt)
 
+def get_test_option_deny(opt):
+    if opt == "pickler.unpickle.mode":
+        return "deny"
+    return get_option(opt)
+
+def get_test_option_off(opt):
+    if opt == "pickler.unpickle.mode":
+        return "off"
+    return get_option(opt)
+
+def prepare_unsafe_pickle(path):
     class MyEvilPickle:
         def __reduce__(self):
             return (os.system, ("whoami",))
 
     pickle_data = pickle.dumps(MyEvilPickle())
     # storing the serialized output into a file in current directory
-    path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_forbidden.pkl")
     with open(path, "wb") as file:
         file.write(pickle_data)
 
+def prepare_safe_pickle(path):
+    class MySafePickle:
+        def __reduce__(self):
+            return (str, ("dummy",))
+
+    pickle_data = pickle.dumps(MySafePickle())
+    # storing the serialized output into a file in current directory
+    with open(path, "wb") as file:
+        file.write(pickle_data)
+
+
+@patch("pandas.io.pickle.get_option")
+@patch("pandas.compat.pickle_compat.get_option")
+def test_read_pickle_permit(mock_opt_compat, mock_opt):
+    mock_opt_compat.side_effect = get_test_option_permit
+    mock_opt.side_effect = get_test_option_permit
+    unsafe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_forbidden.pkl")
+    safe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_safe.pkl")
+
+    prepare_unsafe_pickle(unsafe_path)
+    prepare_safe_pickle(safe_path)
+
     with pytest.raises(pickle.UnpicklingError, match=r".* forbidden"):
-        pd.read_pickle(path)
+        pd.read_pickle(unsafe_path)
+
+    assert pd.read_pickle(safe_path) == "dummy"
+
+
+@patch("pandas.io.pickle.get_option")
+@patch("pandas.compat.pickle_compat.get_option")
+def test_read_pickle_deny(mock_opt_compat, mock_opt):
+    mock_opt_compat.side_effect = get_test_option_deny
+    mock_opt.side_effect = get_test_option_deny
+    unsafe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_forbidden.pkl")
+    safe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_safe.pkl")
+
+    prepare_unsafe_pickle(unsafe_path)
+    prepare_safe_pickle(safe_path)
+
+    with pytest.raises(pickle.UnpicklingError, match=r".* forbidden"):
+        pd.read_pickle(unsafe_path)
+
+    assert pd.read_pickle(safe_path) == "dummy"
+
+
+@patch("pandas.io.pickle.get_option")
+@patch("pandas.compat.pickle_compat.get_option")
+def test_read_pickle_off(mock_opt_compat, mock_opt):
+    mock_opt_compat.side_effect = get_test_option_off
+    mock_opt.side_effect = get_test_option_off
+    unsafe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_forbidden.pkl")
+    safe_path = os.path.join(os.path.dirname(__file__), "data", "pickle", "test_safe.pkl")
+
+    prepare_unsafe_pickle(unsafe_path)
+    prepare_safe_pickle(safe_path)
+
+    assert pd.read_pickle(unsafe_path) == 0     #It means the command was executed!
+    assert pd.read_pickle(safe_path) == "dummy"
+
