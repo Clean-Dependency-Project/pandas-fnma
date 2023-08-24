@@ -101,3 +101,4 @@ jupyterlab >=3.4,<4
 jupyterlite==0.1.0b10
 sphinx-toggleprompt
 setuptools>=51.0.0
+tornado>=6.3.3 # not directly required, pinned by Snyk to avoid a vulnerability
