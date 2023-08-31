@@ -1,5 +1,5 @@
 name: Build wheel on runner
-on: push
+on: workflow_dispatch
 
 jobs:
 
@@ -36,15 +36,9 @@ jobs:
       run: >-
         ls -lrt dist/
 
-    - uses: actions/download-artifact@v3
-      id: download
+    - name: Archive artifacts
+      uses: actions/upload-artifact@v3
       with:
-        name: 'my-artifact'
-        path: dist/
-
-    - name: 'Echo download path'
-      run: echo ${{steps.download.outputs.download-path}}
-
-    - name: Display structure of downloaded files
-      run: ls -R
-      working-directory: dist/
+        name: artifacts
+        path: |
+          dist
