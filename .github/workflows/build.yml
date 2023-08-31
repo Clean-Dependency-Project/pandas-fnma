@@ -1,0 +1,48 @@
+name: Build wheel on runner
+
+on:
+  push:
+    branches:
+      - 'main'
+
+jobs:
+
+  build:
+    name: Build the python wheel
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.x"
+ 
+
+    - name: Install pypa/build
+      run: >-
+        python3 -m
+        pip install
+        build
+        --user
+
+    - name: Build the wheel and source tarball
+      run: >-
+        python3 -m
+        build
+        --sdist
+        --wheel
+        --outdir dist/
+        .
+
+    - name: List the produced files
+      run: >-
+        ls -lrt dist/
+
+    - name: Archive artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: artifacts
+        path: |
+          dist
