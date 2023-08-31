@@ -1,5 +1,4 @@
 name: Build wheel on runner
-
 on: push
 
 jobs:
