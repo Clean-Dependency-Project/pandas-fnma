@@ -1,6 +1,9 @@
 name: Build wheel on runner
-# on: workflow_dispatch
-on: push
+
+on:
+  push:
+    branches:
+      - 'main'
 
 jobs:
 
